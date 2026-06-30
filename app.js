@@ -332,6 +332,66 @@ document.getElementById("compareBtn").addEventListener("click", async () => {
     );
 });
 
+// ---------------------------------------------
+// QB Trend (This Season vs Last Season)
+// ---------------------------------------------
+async function openQBTrend() {
+    const name = document.getElementById("playerName").value.trim();
+    const season = parseInt(document.getElementById("seasonSelect").value);
+
+    if (!name) {
+        alert("Enter a QB name first.");
+        return;
+    }
+
+    const prevSeason = season - 1;
+
+    const current = await loadQB(name, season, false);
+    const previous = await loadQB(name, prevSeason, false);
+
+    if (!current || !previous) {
+        alert("Trend unavailable — missing previous season data.");
+        return;
+    }
+
+    const rows = [
+        ["Completion %", current.comp_pct, previous.comp_pct],
+        ["TD%", current.td_pct, previous.td_pct],
+        ["INT%", current.int_pct, previous.int_pct],
+        ["Sack %", current.sack_pct, previous.sack_pct],
+        ["EPA/Play", current.epa_per_play, previous.epa_per_play]
+    ];
+
+    const body = document.getElementById("trendBody");
+    body.innerHTML = "";
+
+    rows.forEach(([label, cur, prev]) => {
+        let arrow = "→";
+        if (cur > prev) arrow = "↑";
+        else if (cur < prev) arrow = "↓";
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${label}</td>
+            <td>${prev?.toFixed(2) ?? "—"}</td>
+            <td>${cur?.toFixed(2) ?? "—"}</td>
+            <td class="trend-arrow">${arrow}</td>
+        `;
+        body.appendChild(tr);
+    });
+
+    document.getElementById("trendTitle").textContent =
+        `${name} — ${season} vs ${prevSeason}`;
+
+    document.getElementById("trendModal").style.display = "flex";
+}
+
+// Close button
+document.getElementById("trendClose").onclick = () =>
+    document.getElementById("trendModal").style.display = "none";
+
+document.getElementById("trendBtn").addEventListener("click", openQBTrend);
+
 
 
 // ---------------------------------------------
