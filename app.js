@@ -72,7 +72,7 @@ function safeFixed(value, decimals = 1) {
 // Fetch QB Data (Direct Fetch Only)
 // ---------------------------------------------
 async function loadQB(playerName, season, isCompare = false) {
-    const spinner = document.getElementById(isCompare ? "spinner2" : "spinner1");
+    const spinner = document.getElementById("spinner1");
     spinner.style.display = "inline-block";
 
     try {
@@ -99,6 +99,7 @@ async function loadQB(playerName, season, isCompare = false) {
         return null;
     }
 }
+
 
 // ---------------------------------------------
 // Update UI With QB Data (5-Metric Version)
