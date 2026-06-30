@@ -1,374 +1,381 @@
-// -----------------------------------------------------
-// Pitcher Analyzer - app.js
-// Backend-only, no CSV preload
-// -----------------------------------------------------
+// ============================================================
+// QB NAME MAP — convert abbreviations to full names
+// ============================================================
+const QB_NAME_MAP = {
+    "P.Mahomes": "Patrick Mahomes",
+    "J.Burrow": "Joe Burrow",
+    "C.Stroud": "C.J. Stroud",
+    "J.Daniels": "Jayden Daniels",
+    "S.Darnold": "Sam Darnold",
+    "C.Williams": "Caleb Williams",
+    "B.Mayfield": "Baker Mayfield",
+    "G.Smith": "Geno Smith",
+    "A.Rodgers": "Aaron Rodgers",
+    "M.Stafford": "Matthew Stafford",
+    "B.Nix": "Bo Nix",
+    "J.Goff": "Jared Goff",
+    "J.Allen": "Josh Allen",
+    "J.Herbert": "Justin Herbert",
+    "K.Murray": "Kyler Murray",
+    "L.Jackson": "Lamar Jackson",
+    "J.Hurts": "Jalen Hurts",
+    "B.Purdy": "Brock Purdy",
+    "K.Cousins": "Kirk Cousins",
+    "J.Love": "Jordan Love",
+    "T.Tagovailoa": "Tua Tagovailoa",
+    "B.Young": "Bryce Young",
+    "R.Wilson": "Russell Wilson",
+    "D.Prescott": "Dak Prescott",
+    "D.Maye":  "Drake Maye",
+};
 
-// -------------------------------
-// Safe helpers
-// -------------------------------
-function safeFixed(value, digits = 1) {
-    return (value != null && !isNaN(value))
-        ? Number(value).toFixed(digits)
-        : "--";
-}
-
-function safeScore(value) {
-    return (value != null && !isNaN(value))
-        ? Number(value)
-        : 0;
-}
-
-// =====================================================
-// Utility: Normalize name to match R script (First Last)
-// =====================================================
-function normalizeNameFrontend(x) {
-    return x
-        .normalize("NFKD")               // strip accents
-        .replace(/[^\w\s-]/g, "")        // remove non-ASCII
-        .replace(/\s+/g, " ")            // collapse spaces
-        .trim();                         // keep First Last order
-}
-
-
-// -------------------------------
-// Utility: Fetch pitcher data
-// -------------------------------
-async function loadPitcher(name, season) {
-    const clean = normalizeNameFrontend(name);
-
-    const url = `https://pitcher-analyzer-backend.onrender.com/api/pitchers?name=${encodeURIComponent(clean)}&season=${season}`;
-    const res = await fetch(url);
-
-    if (!res.ok) {
-        console.error("Pitcher fetch failed", await res.text());
-        return null;
-    }
-
-    const data = await res.json();
-
-    // ⭐ Normalize backend output: ALWAYS return an array
-    return Array.isArray(data) ? data : [data];
+function expandAbbrev(abbrev) {
+    return QB_NAME_MAP[abbrev] || abbrev;
 }
 
 
+// ---------------------------------------------
+// Utility Helpers
+// ---------------------------------------------
+function safeNumber(x) {
+    return (x === null || x === undefined || isNaN(x)) ? 0 : Number(x);
+}
 
-
-// -------------------------------
-// Battery fill updater
-// -------------------------------
-function updateBattery(id, score) {
+function setBattery(id, score) {
     const el = document.getElementById(id);
     if (!el) return;
 
-    const fill = (score / 10) * 100;
+    const pct = Math.max(0, Math.min(score * 10, 100));
+    let color = "#d50000"; // red
 
-    let color;
-    if (score < 3) {
-        color = "#d50000";
-    } else if (score < 5.5) {
-        color = "#ff9800";
-    } else if (score < 7.5) {
-        color = "#ffb400";
-    } else {
-        color = "#00c853";
-    }
+    if (score >= 8) color = "#4caf50";       // green
+    else if (score >= 6) color = "#ffb400";  // yellow-orange
+    else if (score >= 4) color = "#ff8c00";  // orange
 
-    el.style.setProperty("--fillWidth", `${fill}%`);
+    el.style.setProperty("--fillWidth", pct + "%");
     el.style.setProperty("--fillColor", color);
 }
 
-// -------------------------------
-// Universal metric updater
-// -------------------------------
-function updateMetric(rawId, batteryId, scoreId, rawValue, scoreValue) {
-    document.getElementById(rawId).textContent = rawValue;
-    document.getElementById(scoreId).textContent = safeFixed(scoreValue, 1);
-    updateBattery(batteryId, safeScore(scoreValue));
+function updateText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
 }
 
-// -------------------------------
-// Individual metric wrappers (5‑metric model)
-// -------------------------------
-function updateERA(raw, score)     { updateMetric("raw-era",  "battery-era",  "score-era",  raw, score); }
-function updateWHIP(raw, score)    { updateMetric("raw-whip", "battery-whip", "score-whip", raw, score); }
-function updateKpct(raw, score)    { updateMetric("raw-kpct", "battery-kpct", "score-kpct", raw, score); }
-function updateBBpct(raw, score)   { updateMetric("raw-bbpct","battery-bbpct","score-bbpct",raw, score); }
-function updateKBB(raw, score)     { updateMetric("raw-kbb",  "battery-kbb",  "score-kbb",  raw, score); }
-
-
-// -------------------------------
-// Overall score + tier
-// -------------------------------
-function updateOverall(score) {
-    document.getElementById("overallScore").textContent = safeFixed(score, 1);
-    updateBattery("battery-overall", safeScore(score));
-}
-
-function getTierClass(tier) {
-    switch (tier) {
-        case "Ace": return "tier-great";
-        case "Top Starter": return "tier-good";
-        case "Mid Rotation": return "tier-fair";
-        case "Back End": return "tier-average";
-        case "Depth": return "tier-belowavg";
-        default: return "";
-    }
-}
-
-function updateTier(score) {
-    let tier = "—";
-
-    if (score >= 8.5) tier = "Ace";
-    else if (score >= 7.0) tier = "Top Starter";
-    else if (score >= 5.5) tier = "Mid Rotation";
-    else if (score >= 4.0) tier = "Back End";
-    else tier = "Depth";
-
-    document.getElementById("overallTier").innerHTML =
-        `<span class="tier-badge ${getTierClass(tier)}">${tier}</span>`;
-}
-
-// -------------------------------
-// Scouting note generator (5‑metric model)
-// -------------------------------
-function updateScoutingNote(p) {
-    const strengths = [];
-    const concerns = [];
-
-    // K%
-    if (p.Kpct > 28) strengths.push("impact swing‑and‑miss");
-    else if (p.Kpct > 24) strengths.push("above‑average bat‑missing ability");
-    else if (p.Kpct < 20) concerns.push("below‑average bat‑missing ability");
-
-    // WHIP
-    if (p.WHIP < 1.10) strengths.push("premium traffic control");
-    else if (p.WHIP < 1.20) strengths.push("manageable baserunner profile");
-    else if (p.WHIP > 1.30) concerns.push("inconsistent command leading to traffic");
-
-    // K/BB
-    if (p.KBB > 4) strengths.push("efficient strike‑throwing");
-    else if (p.KBB > 3) strengths.push("workable command");
-    else if (p.KBB < 2) concerns.push("erratic strike‑throwing");
-
-    // BB%
-    if (p.BBpct < 5) strengths.push("plus walk suppression");
-    else if (p.BBpct < 7) strengths.push("solid underlying command");
-    else if (p.BBpct > 9) concerns.push("elevated walk rate that may limit consistency");
-    else if (p.BBpct > 11) concerns.push("high‑risk command profile with frequent free passes");
-
-    // ⭐ FIP block removed (no longer part of the model)
-
-    let note = "";
-
-    if (strengths.length && !concerns.length) {
-        note = "Profile built on " +
-            strengths.join(", ").replace(/, ([^,]*)$/, " and $1") + ".";
-    } else if (!strengths.length && concerns.length) {
-        note = "Concerns include " +
-            concerns.join(", ").replace(/, ([^,]*)$/, " and $1") + ".";
-    } else {
-        note = "Shows " +
-            strengths.join(", ").replace(/, ([^,]*)$/, " and $1") +
-            " but " +
-            concerns.join(", ").replace(/, ([^,]*)$/, " and $1") +
-            ".";
-    }
-
-    // W–L context stays
-    if (p.W !== undefined && p.L !== undefined) {
-        const wl = `${p.W}-${p.L}`;
-        note += `\nW–L this season: ${wl}.`;
-    }
-
-    document.getElementById("scoutingNote").innerHTML = note;
+function safeFixed(value, decimals = 1) {
+    return (value != null && !isNaN(value))
+        ? Number(value).toFixed(decimals)
+        : "—";
 }
 
 
-// -------------------------------
-// Weighted Overall Score (5‑metric model)
-// -------------------------------
-function computeWeightedOverall({
-    eraScore,
-    whipScore,
-    kpctScore,
-    bbpctScore,
-    kbbScore
-}) {
-    return (
-        eraScore  * 0.25 +
-        whipScore * 0.25 +
-        kpctScore * 0.1875 +
-        bbpctScore* 0.125 +
-        kbbScore  * 0.1875
-    );
-}
-
-function clamp(x, min, max) {
-    return Math.max(min, Math.min(max, x));
-}
-
-// ------------------------------
-// Scoring functions (5‑metric model)
-// ------------------------------
-function scoreERA(era) {
-    const score = 10 * (5.00 - era) / (5.00 - 2.00);
-    return clamp(score, 0, 10);
-}
-
-function scoreWHIP(whip) {
-    const score = 10 * (1.40 - whip) / (1.40 - 0.90);
-    return clamp(score, 0, 10);
-}
-
-function scoreKpct(kpct) {
-    const score = 10 * (kpct - 15) / (35 - 15);
-    return clamp(score, 0, 10);
-}
-
-function scoreBBpct(bbpct) {
-    const score = 10 * (10 - bbpct) / (10 - 3);
-    return clamp(score, 0, 10);
-}
-
-function scoreKBB(kbb) {
-    const score = 10 * (kbb - 1.5) / (6.0 - 1.5);
-    return clamp(score, 0, 10);
-}
-
-// ⭐ Removed (no longer part of the model):
-// function scoreIP(ip) { ... }
-// function scoreHR9(hr9) { ... }
-// function scoreFIP(fip) { ... }
-
-
-
-// -------------------------------
-// Main: Load player + update UI (backend-only)
-// -------------------------------
-async function handleLoad() {
-    showSpinner("spinner1");
+// ---------------------------------------------
+// Fetch QB Data (Direct Fetch Only)
+// ---------------------------------------------
+async function loadQB(playerName, season, isCompare = false) {
+    const spinner = document.getElementById(isCompare ? "spinner2" : "spinner1");
+    spinner.style.display = "inline-block";
 
     try {
-        const name = document.getElementById("playerName").value.trim();
-        const season = parseInt(document.getElementById("seasonSelect").value);
+        const url = `https://qb-analyzer-backend.onrender.com/run_qb?qb=${encodeURIComponent(playerName)}&season=${season}`;
+        const response = await fetch(url);
+        const data = await response.json();
 
-        if (!name) {
-            alert("Enter a player name.");
-            return;
+        if (data.error) {
+            alert(data.error);
+            spinner.style.display = "none";
+            return null;
         }
 
-        const data = await loadPitcher(name, season);
-
-        // ⭐ Correct error handling
-        if (!data || data.error || (Array.isArray(data) && data.length === 0)) {
-            alert("Pitcher not found.");
-            return;
-        }
-
-        // ⭐ Always normalize to object
-        const p = Array.isArray(data) ? data[0] : data;
-
-        // ⭐ Only 5 metrics now
-        const eraScore   = scoreERA(p.ERA);
-        const whipScore  = scoreWHIP(p.WHIP);
-        const kpctScore  = scoreKpct(p.Kpct);
-        const bbpctScore = scoreBBpct(p.BBpct);
-        const kbbScore   = scoreKBB(p.KBB);
-
-        updateERA(safeFixed(p.ERA, 2), eraScore);
-        updateWHIP(safeFixed(p.WHIP, 2), whipScore);
-        updateKpct(safeFixed(p.Kpct, 1), kpctScore);
-        updateBBpct(safeFixed(p.BBpct, 1), bbpctScore);
-        updateKBB(safeFixed(p.KBB, 2), kbbScore);
-
-        const overall = computeWeightedOverall({
-            eraScore,
-            whipScore,
-            kpctScore,
-            bbpctScore,
-            kbbScore
-        });
-
-        updateOverall(overall);
-        updateTier(overall);
-        updateScoutingNote(p);
+        spinner.style.display = "none";
+        return {
+            raw_name: data.qb_name || playerName,
+            ...data
+        };
 
     } catch (err) {
-        console.error("Error loading player:", err);
-    } finally {
-        hideSpinner("spinner1");
+        console.error(err);
+        alert("Error loading QB data.");
+        spinner.style.display = "none";
+        return null;
     }
 }
 
-// -------------------------------
-// Trend Handler (Season Comparison)
-// -------------------------------
-async function handleTrend() {
-    showSpinner("spinner1");
+// ---------------------------------------------
+// Update UI With QB Data (5-Metric Version)
+// ---------------------------------------------
+function updateQBUI(data) {
+    if (!data) return;
 
-    try {
-        const rawName = document.getElementById("playerName").value.trim();
-        if (!rawName) {
-            alert("Enter a player name first.");
-            return;
-        }
+    // -------------------------
+    // Raw stats
+    // -------------------------
+    updateText("raw-comp", data.comp_pct.toFixed(1));
+    updateText("raw-tdpct", data.td_pct.toFixed(2));
+    updateText("raw-intpct", data.int_pct.toFixed(2));
+    updateText("raw-sackpct", data.sack_pct.toFixed(2));
+    updateText("raw-epa", data.epa_per_play.toFixed(3));
 
-        const season = Number(document.getElementById("seasonSelect").value);
-        const lastSeason = season - 1;
+    // -------------------------
+    // Scores
+    // -------------------------
+    updateText("score-comp", data.comp_score.toFixed(1));
+    updateText("score-tdpct", data.td_score.toFixed(1));
+    updateText("score-intpct", data.int_score.toFixed(1));
+    updateText("score-sackpct", data.sack_score.toFixed(1));
+    updateText("score-epa", data.epa_score.toFixed(1));
 
-        // Fetch both seasons using stathead.r API
-        const currArr = await fetch(`https://pitcher-analyzer-backend.onrender.com/api/pitchers?name=${encodeURIComponent(rawName)}&season=${season}`)
-            .then(r => r.json());
+    // -------------------------
+    // Batteries
+    // -------------------------
+    setBattery("battery-comp", data.comp_score);
+    setBattery("battery-tdpct", data.td_score);
+    setBattery("battery-intpct", data.int_score);
+    setBattery("battery-sackpct", data.sack_score);
+    setBattery("battery-epa", data.epa_score);
 
-        const prevArr = await fetch(`https://pitcher-analyzer-backend.onrender.com/api/pitchers?name=${encodeURIComponent(rawName)}&season=${lastSeason}`)
-            .then(r => r.json());
+    // -------------------------
+    // Overall Score + Tier
+    // -------------------------
+    updateText("overallScore", data.qb_score.toFixed(1));
 
-        const curr = Array.isArray(currArr) ? currArr[0] : currArr;
-        const prev = Array.isArray(prevArr) ? prevArr[0] : prevArr;
+    const tierClass = getTierClass(data.qb_tier);
+    document.getElementById("overallTier").innerHTML = `
+        <span class="tier-badge ${tierClass}">
+            ${data.qb_tier}
+        </span>
+    `;
 
-        if (!curr || curr.error || !prev || prev.error) {
-            alert("Not enough data for season comparison.");
-            return;
-        }
+    setBattery("battery-overall", data.qb_score);
 
-        if (curr.ERA == null || prev.ERA == null) {
-            alert("Not enough data for season comparison.");
-            return;
-        }
-
-        const html = buildSeasonComparison(curr, prev, season, lastSeason);
-
-        document.getElementById("trendTitle").textContent =
-            `Season Comparison (${season} vs ${lastSeason})`;
-
-        document.getElementById("trendBody").innerHTML = html;
-        document.getElementById("trendModal").style.display = "flex";
-
-    } finally {
-        hideSpinner("spinner1");
-    }
+    // -------------------------
+    // Scouting Note
+    // -------------------------
+    const note = generateScoutingNote(data);
+    updateText("scoutingNote", note);
 }
 
 
+// ---------------------------------------------
+// Scouting Note Generator (5-Metric Version)
+// ---------------------------------------------
+function generateScoutingNote(d) {
+    if (!d) return "--";
 
-// -------------------------------
-// Trend Table (Season Comparison)
-// -------------------------------
-function buildSeasonComparison(curr, prev, season, lastSeason) {
+    const strengths = [];
+    const weaknesses = [];
 
+    // -------------------------
+    // Strengths
+    // -------------------------
+    if (d.comp_score >= 7.5) strengths.push("accurate passer");
+    if (d.td_score >= 7.5) strengths.push("strong scoring production");
+    if (d.int_score >= 7.5) strengths.push("protects the football");
+    if (d.sack_score >= 7.5) strengths.push("avoids negative plays");
+    if (d.epa_score >= 7.5) strengths.push("high-impact playmaker");
+
+    // -------------------------
+    // Weaknesses
+    // -------------------------
+    if (d.comp_score <= 4) weaknesses.push("accuracy inconsistency");
+    if (d.td_score <= 4) weaknesses.push("low scoring output");
+    if (d.int_score <= 4) weaknesses.push("turnover concerns");
+    if (d.sack_score <= 4) weaknesses.push("pressure vulnerability");
+    if (d.epa_score <= 4) weaknesses.push("low EPA impact");
+
+    // -------------------------
+    // Balanced profile
+    // -------------------------
+    if (strengths.length === 0 && weaknesses.length === 0)
+        return "Balanced profile with no extreme strengths or weaknesses.";
+
+    // -------------------------
+    // Build final note
+    // -------------------------
+    let note = "";
+
+    if (strengths.length > 0)
+        note += "Strengths: " + strengths.join(", ") + ". ";
+
+    if (weaknesses.length > 0)
+        note += "Needs improvement: " + weaknesses.join(", ") + ".";
+
+    return note;
+}
+
+// ---------------------------------------------
+// Compare Modal (5-Metric Version)
+// ---------------------------------------------
+function openCompareModal(qb1, qb2, name1, name2, season1, season2) {
+    const modal = document.getElementById("compareModal");
+    const body = document.getElementById("compareBody");
+
+    // Use real names
+    document.getElementById("compareName1").textContent = `${name1} (${season1})`;
+    document.getElementById("compareName2").textContent = `${name2} (${season2})`;
+
+    // Metrics where lower is better
+    const lowerIsBetter = new Set(["INT%", "Sack %"]);
+
+    // Your new 5-metric comparison rows
+    const rows = [
+        ["Completion %", qb1.comp_pct, qb2.comp_pct],
+        ["TD%", qb1.td_pct, qb2.td_pct],
+        ["INT%", qb1.int_pct, qb2.int_pct],
+        ["Sack %", qb1.sack_pct, qb2.sack_pct],
+        ["EPA/Play", qb1.epa_per_play, qb2.epa_per_play],
+        ["Overall Score", qb1.qb_score, qb2.qb_score]
+    ];
+
+    body.innerHTML = "";
+
+    rows.forEach(([label, a, b]) => {
+        const tr = document.createElement("tr");
+
+        let classA = "tie";
+        let classB = "tie";
+
+        if (a != null && b != null) {
+            if (lowerIsBetter.has(label)) {
+                if (a < b) { classA = "win"; classB = "lose"; }
+                else if (b < a) { classA = "lose"; classB = "win"; }
+            } else {
+                if (a > b) { classA = "win"; classB = "lose"; }
+                else if (b > a) { classA = "lose"; classB = "win"; }
+            }
+        }
+
+        const decimals = (label === "Overall Score") ? 1 : 2;
+        const valA = (a != null ? a.toFixed(decimals) : "—");
+        const valB = (b != null ? b.toFixed(decimals) : "—");
+
+        tr.innerHTML = `
+            <td>${label}</td>
+            <td class="${classA}">${valA}</td>
+            <td class="${classB}">${valB}</td>
+        `;
+
+        body.appendChild(tr);
+    });
+
+    modal.style.display = "flex";
+}
+
+document.getElementById("compareClose").onclick = () =>
+    document.getElementById("compareModal").style.display = "none";
+
+
+
+
+// ---------------------------------------------
+// Load Button
+// ---------------------------------------------
+document.getElementById("loadBtn").addEventListener("click", async () => {
+    const name = document.getElementById("playerName").value.trim();
+    const season = parseInt(document.getElementById("seasonSelect").value);
+
+    if (!name) {
+        alert("Enter a QB name.");
+        return;
+    }
+
+    const data = await loadQB(name, season);
+
+    if (!data || data.error) {
+        alert(data?.error || "QB not found.");
+        return;
+    }
+
+    updateQBUI(data);
+});
+
+
+
+
+// ---------------------------------------------
+// Reset Button
+// ---------------------------------------------
+document.getElementById("resetBtn").addEventListener("click", () => {
+    document.querySelectorAll(".metric-raw, .metric-score").forEach(el => el.textContent = "--");
+    document.getElementById("overallScore").textContent = "--";
+    document.getElementById("overallTier").textContent = "--";
+    document.getElementById("scoutingNote").textContent = "--";
+
+    document.querySelectorAll(".battery").forEach(b => {
+        b.style.setProperty("--fillWidth", "0%");
+        b.style.setProperty("--fillColor", "#d50000");
+    });
+});
+
+
+// ---------------------------------------------
+// Compare Button
+// ---------------------------------------------
+document.getElementById("compareBtn").addEventListener("click", async () => {
+    const qb1 = document.getElementById("playerName").value.trim();
+    const season1 = document.getElementById("seasonSelect").value;
+
+    const qb2 = document.getElementById("playerName2").value.trim();
+    const season2 = document.getElementById("seasonSelect2").value;
+
+    if (!qb1 || !qb2) {
+        alert("Enter both QB names before comparing.");
+        return;
+    }
+
+    const data1 = await loadQB(qb1, season1, true);
+    const data2 = await loadQB(qb2, season2, true);
+
+    if (!data1 || !data2) {
+        alert("Could not load one or both QBs.");
+        return;
+    }
+
+    openCompareModal(
+        data1,
+        data2,
+        data1.raw_name,
+        data2.raw_name,
+        season1,
+        season2
+    );
+});
+
+// ---------------------------------------------
+// QB Trend (This Season vs Last Season)
+// ---------------------------------------------
+async function openQBTrend() {
+    const name = document.getElementById("playerName").value.trim();
+    const season = parseInt(document.getElementById("seasonSelect").value);
+
+    if (!name) {
+        alert("Enter a QB name first.");
+        return;
+    }
+
+    const prevSeason = season - 1;
+
+    const current = await loadQB(name, season, false);
+    const previous = await loadQB(name, prevSeason, false);
+
+    if (!current || !previous) {
+        alert("Trend unavailable — missing previous season data.");
+        return;
+    }
+
+    // Pitcher-style stat config
     const stats = [
-        { key: "ERA",   label: "ERA",   higherIsBetter: false },
-        { key: "WHIP",  label: "WHIP",  higherIsBetter: false },
-        { key: "Kpct",  label: "K%",    higherIsBetter: true  },
-        { key: "BBpct", label: "BB%",   higherIsBetter: false },
-        { key: "KBB",   label: "K/BB",  higherIsBetter: true  }
+        { key: "comp_pct",     label: "Completion %", higherIsBetter: true  },
+        { key: "td_pct",       label: "TD%",          higherIsBetter: true  },
+        { key: "int_pct",      label: "INT%",         higherIsBetter: false },
+        { key: "sack_pct",     label: "Sack %",       higherIsBetter: false },
+        { key: "epa_per_play", label: "EPA/Play",     higherIsBetter: true  }
     ];
 
     let rows = stats.map(s => {
-        const a = Number(curr[s.key]);
-        const b = Number(prev[s.key]);
+        const a = Number(current[s.key]);
+        const b = Number(previous[s.key]);
 
-        // Determine arrow
+        // Determine arrow (Pitcher logic)
         const arrow =
             a === b ? "➖" :
             s.higherIsBetter
@@ -382,23 +389,23 @@ function buildSeasonComparison(curr, prev, season, lastSeason) {
             "trend-flat";
 
         return `
-    <tr>
-        <td>${s.label}</td>
-        <td>${isNaN(a) ? "--" : a.toFixed(2)}</td>
-        <td>${isNaN(b) ? "--" : b.toFixed(2)}</td>
-        <td class="${arrowClass}">${arrow}</td>
-    </tr>
-`;
-
+            <tr>
+                <td>${s.label}</td>
+                <td>${isNaN(a) ? "--" : a.toFixed(2)}</td>
+                <td>${isNaN(b) ? "--" : b.toFixed(2)}</td>
+                <td class="${arrowClass}">${arrow}</td>
+            </tr>
+        `;
     }).join("");
 
-    return `
+    const body = document.getElementById("trendBody");
+    body.innerHTML = `
         <table class="trend-table">
             <thead>
                 <tr>
                     <th>Stat</th>
                     <th>${season}</th>
-                    <th>${lastSeason}</th>
+                    <th>${prevSeason}</th>
                     <th>Trend</th>
                 </tr>
             </thead>
@@ -407,231 +414,77 @@ function buildSeasonComparison(curr, prev, season, lastSeason) {
             </tbody>
         </table>
     `;
+
+    document.getElementById("trendTitle").textContent =
+        `${name} — ${season} vs ${prevSeason}`;
+
+    document.getElementById("trendModal").style.display = "flex";
 }
 
-// -------------------------------
-// Compare Button
-// -------------------------------
+// Close button
+document.getElementById("trendClose").onclick = () =>
+    document.getElementById("trendModal").style.display = "none";
 
-async function showCompareModal() {
-    showSpinner("spinner1");
-    console.log("COMPARE BUTTON CLICKED");
+document.getElementById("trendBtn").addEventListener("click", openQBTrend);
 
-    try {
-        const p1_raw = document.getElementById("playerName").value.trim();
-        const s1 = document.getElementById("seasonSelect").value;
 
-        const p2_raw = document.getElementById("playerName2").value.trim();
-        const s2 = document.getElementById("seasonSelect2").value;
 
-        if (!p1_raw || !p2_raw) {
-            alert("Enter both pitcher names.");
-            return;
-        }
 
-        const data1Arr = await loadPitcher(p1_raw, s1);
-        const data2Arr = await loadPitcher(p2_raw, s2);
+// ---------------------------------------------
+// Swap Button
+// ---------------------------------------------
+document.getElementById("swapBtn").addEventListener("click", () => {
+    const n1 = document.getElementById("playerName").value;
+    const n2 = document.getElementById("playerName2").value;
+    const s1 = document.getElementById("seasonSelect").value;
+    const s2 = document.getElementById("seasonSelect2").value;
 
-        // ⭐ Normalize to objects
-        const data1 = Array.isArray(data1Arr) ? data1Arr[0] : data1Arr;
-        const data2 = Array.isArray(data2Arr) ? data2Arr[0] : data2Arr;
+    document.getElementById("playerName").value = n2;
+    document.getElementById("playerName2").value = n1;
+    document.getElementById("seasonSelect").value = s2;
+    document.getElementById("seasonSelect2").value = s1;
+});
 
-        // ⭐ Correct error handling
-        if (!data1 || data1.error || !data2 || data2.error) {
-            alert("One or both pitchers not found.");
-            return;
-        }
-
-        // ⭐ Ensure stats exist (ERA can be 0, so check null/undefined)
-        if (data1.ERA == null || data2.ERA == null) {
-            alert("Not enough data for comparison.");
-            return;
-        }
-
-        document.getElementById("compareName1").textContent = `${p1_raw} (${s1})`;
-        document.getElementById("compareName2").textContent = `${p2_raw} (${s2})`;
-
-        const s1_ERA   = scoreERA(data1.ERA);
-        const s1_WHIP  = scoreWHIP(data1.WHIP);
-        const s1_Kpct  = scoreKpct(data1.Kpct);
-        const s1_BBpct = scoreBBpct(data1.BBpct);
-        const s1_KBB   = scoreKBB(data1.KBB);
-
-        const s2_ERA   = scoreERA(data2.ERA);
-        const s2_WHIP  = scoreWHIP(data2.WHIP);
-        const s2_Kpct  = scoreKpct(data2.Kpct);
-        const s2_BBpct = scoreBBpct(data2.BBpct);
-        const s2_KBB   = scoreKBB(data2.KBB);
-
-        const overall1 = computeWeightedOverall({
-            eraScore: s1_ERA,
-            whipScore: s1_WHIP,
-            kpctScore: s1_Kpct,
-            bbpctScore: s1_BBpct,
-            kbbScore: s1_KBB
-        });
-
-        const overall2 = computeWeightedOverall({
-            eraScore: s2_ERA,
-            whipScore: s2_WHIP,
-            kpctScore: s2_Kpct,
-            bbpctScore: s2_BBpct,
-            kbbScore: s2_KBB
-        });
-
-        const stats = [
-            ["ERA",  data1.ERA,  data2.ERA],
-            ["WHIP", data1.WHIP, data2.WHIP],
-            ["K%",   data1.Kpct, data2.Kpct],
-            ["BB%",  data1.BBpct,data2.BBpct],
-            ["K/BB", data1.KBB,  data2.KBB],
-            ["Overall Score", overall1.toFixed(2), overall2.toFixed(2)]
-        ];
-
-        const tbody = document.getElementById("compareBody");
-        tbody.innerHTML = "";
-
-        stats.forEach(([label, v1, v2]) => {
-            const row = document.createElement("tr");
-
-            let class1 = "tie";
-            let class2 = "tie";
-
-            if (v1 != null && v2 != null) {
-                if (label === "ERA" || label === "WHIP" || label === "BB%") {
-                    if (v1 < v2) { class1 = "win"; class2 = "lose"; }
-                    else if (v2 < v1) { class1 = "lose"; class2 = "win"; }
-                } else {
-                    if (v1 > v2) { class1 = "win"; class2 = "lose"; }
-                    else if (v2 > v1) { class1 = "lose"; class2 = "win"; }
-                }
-            }
-
-            row.innerHTML = `
-                <td>${label}</td>
-                <td class="${class1}">${v1 ?? "—"}</td>
-                <td class="${class2}">${v2 ?? "—"}</td>
-            `;
-
-            tbody.appendChild(row);
-        });
-
-        document.getElementById("compareModal").style.display = "flex";
-
-    } catch (err) {
-        console.error("Compare error:", err);
-    } finally {
-        hideSpinner("spinner1");
+function getTierClass(tier) {
+    switch (tier) {
+        case "Great": return "tier-great";
+        case "Good": return "tier-good";
+        case "Fair": return "tier-fair";
+        case "Average": return "tier-average";
+        case "Below Average": return "tier-belowavg";
+        default: return "";
     }
 }
 
 
+// ---------------------------------------------
+// Normalize QB names BEFORE calling R
+// ---------------------------------------------
+function normalizeName(name) {
+    name = name.toLowerCase().trim();
 
-// -------------------------------
-// Pitcher Tier Assignment
-// -------------------------------
-function getPitcherTier(score) {
-    if (score >= 8.5) return "Ace";
-    if (score >= 7.0) return "Top Starter";
-    if (score >= 5.5) return "Mid Rotation";
-    if (score >= 4.0) return "Back End";
-    return "Depth";
+    const parts = name.split(/\s+/);
+    if (parts.length < 2) return name;
+
+    const first = parts[0][0];      // first initial
+    const last = parts[1];          // last name
+
+    return first + "." + last;      // e.g. j + . + allen = j.allen
 }
 
 
 
+// ---------------------------------------------
+// Display Name Helper (convert normalized → full)
+// ---------------------------------------------
+function displayName(normKey) {
+    const parts = normKey.match(/[a-z]+/gi);
+    if (!parts || parts.length < 2) return normKey;
 
-// -------------------------------
-// Swap Button
-// -------------------------------
-document.getElementById("swapBtn").onclick = function () {
-    const name1 = document.getElementById("playerName");
-    const season1 = document.getElementById("seasonSelect");
+    const first = parts[0];
+    const last  = parts[parts.length - 1];
 
-    const name2 = document.getElementById("playerName2");
-    const season2 = document.getElementById("seasonSelect2");
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
-    const tempName = name1.value;
-    const tempSeason = season1.value;
-
-    name1.value = name2.value;
-    season1.value = season2.value;
-
-    name2.value = tempName;
-    season2.value = tempSeason;
-
-    // FIXED: Trigger the correct load button
-    document.getElementById("loadBtn").click();
-};
-
-
-// -------------------------------
-// Spinner Helpers
-// -------------------------------
-function showSpinner(id) {
-    document.getElementById(id).style.display = "inline-block";
+    return `${cap(first)} ${cap(last)}`;
 }
-
-function hideSpinner(id) {
-    document.getElementById(id).style.display = "none";
-}
-
-// -------------------------------
-// Reset UI
-// -------------------------------
-function handleReset() {
-    document.querySelectorAll(".metric-raw").forEach(el => el.textContent = "--");
-    document.querySelectorAll(".metric-score").forEach(el => el.textContent = "--");
-
-    document.querySelectorAll(".battery").forEach(el => {
-        el.style.setProperty("--fillWidth", "0%");
-        el.style.setProperty("--fillColor", "#d50000");
-    });
-
-    document.getElementById("overallScore").textContent = "--";
-    document.getElementById("overallTier").innerHTML = "";
-    document.getElementById("scoutingNote").innerHTML = "";
-}
-
-// -------------------------------
-// Latest Update Timestamp
-// -------------------------------
-async function loadLastUpdated(season) {
-    const url = `https://pitcher-analyzer-backend.onrender.com/api/last-updated/pitchers/${season}`;
-    const res = await fetch(url);
-    const data = await res.json();
-
-    const date = new Date(data.lastUpdated);
-    const formatted = date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
-
-    document.getElementById('lastUpdated').textContent =
-        `Last updated on ${formatted}`;
-}
-
-// -------------------------------
-// Wire up UI buttons
-// -------------------------------
-document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("loadBtn").addEventListener("click", handleLoad);
-    document.getElementById("resetBtn").addEventListener("click", handleReset);
-    document.getElementById("compareBtn").addEventListener("click", showCompareModal);
-
-    // Single Trend button
-    document.getElementById("trendBtn").addEventListener("click", handleTrend);
-
-
-
-    // Close modals
-    document.getElementById("trendClose").onclick = () =>
-        document.getElementById("trendModal").style.display = "none";
-
-    document.getElementById("compareClose").onclick = () =>
-        document.getElementById("compareModal").style.display = "none";
-
-});
-
-
